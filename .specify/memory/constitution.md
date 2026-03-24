@@ -1,50 +1,177 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report
+- Version change: 1.0.0 → 1.1.0
+- Added principles:
+  7. Red-Green-Refactor TDD
+- Changed:
+  - Project name corrected from "ccignore" to "ccbox"
+  - Development Workflow updated with TDD cycle requirements
+- Templates requiring updates:
+  - .specify/templates/plan-template.md — verify TDD phase guidance present
+  - .specify/templates/spec-template.md — verify test-first language present
+  - .specify/templates/tasks-template.md — verify red-green-refactor phasing compatible
+- Follow-up TODOs: Review templates for TDD alignment
+-->
+
+# ccbox Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Simplicity Over Cleverness
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+All code MUST be straightforward and readable. Premature abstraction,
+generic solutions for specific problems, and clever tricks that obscure
+intent are prohibited. When choosing between a simple approach and an
+elegant one, simplicity wins.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+**Rationale**: ccdevkit tools are maintained by small teams and AI agents.
+Code that is easy to read is easy to trust, review, and extend.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### II. Explicit Over Implicit
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+- Function signatures MUST communicate intent through clear naming and
+  typed parameters.
+- Error messages MUST include actionable context (file paths, values,
+  what the caller should do).
+- Dependencies MUST be obvious: no global state, no `init()` side
+  effects, no hidden coupling.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+**Rationale**: Implicit behavior creates debugging nightmares and makes
+onboarding harder for both humans and AI agents.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### III. Fail Fast, Fail Clearly
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+- Inputs MUST be validated at system boundaries before processing.
+- Errors MUST be returned promptly with context using `fmt.Errorf`
+  and `%w` for wrapping.
+- Errors MUST NOT be silently swallowed. Every ignored error requires
+  an explicit comment justifying the decision.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+**Rationale**: Late failures are expensive. Early, clear failures reduce
+time-to-fix and prevent cascading issues.
+
+### IV. Single Responsibility
+
+Each package, type, and function MUST do one thing well:
+
+- Packages own a single domain.
+- Types represent a single concept.
+- Functions perform a single operation.
+- No "utils" or "helpers" grab-bag packages.
+
+**Rationale**: Single-responsibility code is independently testable,
+replaceable, and comprehensible.
+
+### V. No Over-Engineering
+
+- Build only what is needed now. Speculative generalization is
+  prohibited.
+- Three similar lines of code are preferable to a premature
+  abstraction.
+- Interfaces MUST NOT be introduced until a second consumer exists.
+
+**Rationale**: Unused abstractions add cognitive load and maintenance
+cost with zero current value.
+
+### VI. Test What Matters
+
+- Tests MUST cover the happy path, edge cases, and documented error
+  conditions.
+- Table-driven tests are REQUIRED for functions with multiple input
+  cases.
+- Tests MUST focus on behavior and outputs, not implementation details.
+- Trivial getters, standard library functions, and code with no
+  branching logic SHOULD NOT be tested.
+
+**Rationale**: Tests are a safety net, not a coverage metric. Testing
+behavior ensures refactoring freedom; testing implementation creates
+brittle suites.
+
+### VII. Red-Green-Refactor TDD
+
+All new code MUST be developed using the Red-Green-Refactor cycle:
+
+1. **Red**: Write a failing test that defines the expected behavior
+   before writing any implementation code. The test MUST compile and
+   fail for the right reason (asserting the missing behavior, not a
+   syntax error).
+2. **Green**: Write the minimum implementation code required to make
+   the failing test pass. No more, no less.
+3. **Refactor**: Clean up the implementation and test code while
+   keeping all tests green. Remove duplication, improve naming, and
+   simplify structure.
+
+Additional requirements:
+
+- Each Red-Green-Refactor cycle MUST address a single behavior or
+  requirement. Do not batch multiple behaviors into one cycle.
+- Tests MUST be committed alongside or before the implementation they
+  verify — never after.
+- Bug fixes MUST begin with a failing test that reproduces the bug
+  before applying the fix.
+- Refactoring steps MUST NOT change behavior. If a refactoring
+  requires new behavior, start a new Red-Green-Refactor cycle.
+
+**Rationale**: Writing tests first forces clear thinking about
+interfaces and expected behavior before implementation details cloud
+judgment. The discipline prevents untested code from entering the
+codebase and produces a living specification of system behavior.
+
+## Coding Standards
+
+- **Language**: Go (version matching the ccdevkit ecosystem).
+- **File organization**: Package declaration, imports (stdlib / external
+  / internal), constants, types, package variables, functions
+  (constructors, methods, helpers).
+- **Naming**: PascalCase for exports, camelCase for unexported symbols,
+  lowercase single-word package names, `-er` suffix for single-method
+  interfaces, all-caps for acronyms at word boundaries.
+- **Error handling**: Always wrap with `%w`, lowercase messages, include
+  context (paths, values). Sentinel errors only when callers need to
+  match.
+- **Documentation**: Every exported symbol MUST have a doc comment
+  starting with its name. Comments explain _why_, not _what_.
+- **Formatting**: `gofmt` / `goimports` enforced. Soft line limit 100
+  chars, hard limit 120 chars.
+- **Dependencies**: Prefer stdlib. Minimize external dependencies. No
+  circular imports. Lower-level packages MUST NOT import higher-level
+  packages.
+- **Project structure**: `cmd/<tool>/` for CLI entry points (minimal
+  wiring only), `internal/` for all business logic, `testdata/` for
+  fixtures.
+
+## Development Workflow
+
+- **TDD cycle**: All new features and bug fixes MUST follow
+  Red-Green-Refactor (Principle VII). Implementation PRs without
+  corresponding test-first commits MUST be rejected at review.
+- **Configuration precedence**: CLI flags > environment variables >
+  local config > global config > defaults.
+- **CLI entry points**: `main()` calls `run() error`, handles exit
+  codes. Flag parsing uses the stdlib `flag` package.
+- **Code review gates**: File organization correct, dependency direction
+  downward, errors wrapped with context, doc comments on all exports,
+  tests written before or alongside implementation, tests cover happy
+  path and error cases, no hardcoded secrets, input validated at
+  boundaries.
+- **Commits**: Atomic, one logical change per commit. Conventional
+  commit messages preferred. Test commits SHOULD precede or accompany
+  implementation commits.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution is the authoritative source of coding standards for
+ccbox. It supersedes ad-hoc conventions, oral agreements, and
+conflicting documentation.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+- **Amendments**: Any change to this constitution MUST be documented
+  with a version bump, rationale, and migration plan for existing code
+  that violates the new rule.
+- **Versioning**: Semantic versioning applies. MAJOR for principle
+  removals or redefinitions, MINOR for new principles or material
+  expansions, PATCH for clarifications and typo fixes.
+- **Compliance**: All code changes MUST be verified against these
+  principles during review. Violations require explicit justification
+  tracked in the Complexity Tracking section of the implementation plan.
+
+**Version**: 1.1.0 | **Ratified**: 2026-03-07 | **Last Amended**: 2026-03-25

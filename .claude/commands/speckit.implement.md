@@ -131,39 +131,78 @@ You **MUST** consider the user input before proceeding (if not empty).
    - **Terraform**: `.terraform/`, `*.tfstate*`, `*.tfvars`, `.terraform.lock.hcl`
    - **Kubernetes/k8s**: `*.secret.yaml`, `secrets/`, `.kube/`, `kubeconfig*`, `*.key`, `*.crt`
 
-5. Parse tasks.md structure and extract:
-   - **Task phases**: Setup, Tests, Core, Integration, Polish
+5. **Parse tasks.md** structure and extract:
+   - **Task phases**: Setup, Foundational, User Stories, Polish
    - **Task dependencies**: Sequential vs parallel execution rules
-   - **Task details**: ID, description, file paths, parallel markers [P]
-   - **Execution flow**: Order and dependency requirements
+   - **Task details**: ID, description, file paths, parallel markers [P], story labels
+   - **Execution flow**: Phase order and inter-task dependency requirements
 
-6. Execute implementation following the task plan:
-   - **Phase-by-phase execution**: Complete each phase before moving to the next
-   - **Respect dependencies**: Run sequential tasks in order, parallel tasks [P] can run together  
-   - **Follow TDD approach**: Execute test tasks before their corresponding implementation tasks
-   - **File-based coordination**: Tasks affecting the same files must run sequentially
-   - **Validation checkpoints**: Verify each phase completion before proceeding
+6. **Create team and load tasks**:
 
-7. Implementation execution rules:
-   - **Setup first**: Initialize project structure, dependencies, configuration
-   - **Tests before code**: If you need to write tests for contracts, entities, and integration scenarios
-   - **Core development**: Implement models, services, CLI commands, endpoints
-   - **Integration work**: Database connections, middleware, logging, external services
-   - **Polish and validation**: Unit tests, performance optimization, documentation
+   Use `TeamCreate` to create the implementation team:
+   ```
+   TeamCreate({
+     team_name: "[feature-name]-impl",
+     description: "Implementing [FEATURE NAME] per tasks.md"
+   })
+   ```
 
-8. Progress tracking and error handling:
-   - Report progress after each completed task
-   - Halt execution if any non-parallel task fails
-   - For parallel tasks [P], continue with successful tasks, report failed ones
-   - Provide clear error messages with context for debugging
-   - Suggest next steps if implementation cannot proceed
-   - **IMPORTANT** For completed tasks, make sure to mark the task off as [X] in the tasks file.
+   Then use `TaskCreate` to create a team task for every task in tasks.md. Each task description MUST include:
+   - The exact task ID and description from tasks.md
+   - The TDD requirement: "Follow Red-Green-Refactor: write a failing test first, implement the minimum to pass, then refactor while green."
+   - File paths to create/modify (both implementation and test files)
+   - Dependencies (which task IDs must complete first)
+   - The path to the feature's design documents for reference
 
-9. Completion validation:
-   - Verify all required tasks are completed
+   Use `TaskUpdate` to set `addBlockedBy` for tasks with dependencies.
+
+7. **Execute via agent teammates**:
+
+   **⚠️ CRITICAL RULE: ONE TEAMMATE PER TASK. NO EXCEPTIONS.**
+
+   For each task that is ready (unblocked, unowned):
+   - Spawn a teammate using the `Agent` tool with `team_name` set to the team name
+   - Assign exactly ONE task to the teammate via `TaskUpdate` (set `owner`)
+   - For tasks marked `[P]` with no unresolved dependencies, spawn multiple teammates in parallel
+   - For sequential tasks, wait for the blocking task's teammate to finish before spawning the next
+
+   **Teammate lifecycle**:
+   - Each teammate reads its assigned task via `TaskGet`
+   - Executes the task following Red-Green-Refactor (failing test → implement → refactor)
+   - Marks the task as `completed` via `TaskUpdate`
+   - Shuts down immediately — a teammate MUST NOT be reused for a second task
+
+   **Context rot prevention**: Once a teammate completes its task and shuts down, spawn a NEW teammate for the next task. Every task starts with a fresh context window.
+
+8. **Orchestration loop**:
+
+   ```
+   while uncompleted tasks exist:
+     1. Check TaskList for completed tasks
+     2. For each newly completed task:
+        - Verify the teammate has shut down
+        - Mark the task as [X] in tasks.md
+        - Check if any blocked tasks are now unblocked
+     3. For each unblocked task without an owner:
+        - Spawn a NEW teammate
+        - Assign the task
+     4. At each phase checkpoint:
+        - Verify all phase tasks are complete
+        - Run the full test suite
+        - Only proceed to next phase if green
+     5. If a teammate fails:
+        - For non-parallel tasks: halt and report the error
+        - For parallel tasks: continue with others, report the failure
+        - Provide clear error messages with context for debugging
+   ```
+
+9. **Completion validation**:
+   - Verify all tasks in tasks.md are marked [X]
+   - Run the full test suite one final time
    - Check that implemented features match the original specification
-   - Validate that tests pass and coverage meets requirements
    - Confirm the implementation follows the technical plan
+   - Shut down any remaining teammates via `SendMessage` with `shutdown_request`
+   - Clean up the team via `TeamDelete`
    - Report final status with summary of completed work
 
 Note: This command assumes a complete task breakdown exists in tasks.md. If tasks are incomplete or missing, suggest running `/speckit.tasks` first to regenerate the task list.

@@ -78,11 +78,12 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Phase 1: Setup tasks (project initialization)
    - Phase 2: Foundational tasks (blocking prerequisites for all user stories)
    - Phase 3+: One phase per user story (in priority order from spec.md)
-   - Each phase includes: story goal, independent test criteria, tests (if requested), implementation tasks
+   - Each phase includes: story goal, independent test criteria, implementation tasks (each task includes TDD — NO separate test tasks)
    - Final Phase: Polish & cross-cutting concerns
    - All tasks must follow the strict checklist format (see Task Generation Rules below)
-   - Clear file paths for each task
+   - Clear file paths for each task (both implementation and test files)
    - Dependencies section showing story completion order
+   - Execution Protocol section (TeamCreate → TaskCreate → one-teammate-per-task — copy from template)
    - Parallel execution examples per story
    - Implementation strategy section (MVP first, incremental delivery)
 
@@ -131,14 +132,16 @@ The tasks.md should be immediately executable - each task must be specific enoug
 
 **CRITICAL**: Tasks MUST be organized by user story to enable independent implementation and testing.
 
-**Tests are OPTIONAL**: Only generate test tasks if explicitly requested in the feature specification or if user requests TDD approach.
+**TDD is MANDATORY**: Every task that produces code MUST include the full Red-Green-Refactor cycle (write failing test → implement minimum to pass → refactor). Tests are NOT separate tasks — they are part of each implementation task. This is required by the project constitution (Principle VII).
+
+**Task Granularity**: Each task MUST be small enough that the full TDD cycle is a single coherent unit of work. One tested behavior per task. If a task covers multiple behaviors, split it.
 
 ### Checklist Format (REQUIRED)
 
 Every task MUST strictly follow this format:
 
 ```text
-- [ ] [TaskID] [P?] [Story?] Description with file path
+- [ ] [TaskID] [P?] [Story?] Description with file path(s)
 ```
 
 **Format Components**:
@@ -149,36 +152,36 @@ Every task MUST strictly follow this format:
 4. **[Story] label**: REQUIRED for user story phase tasks only
    - Format: [US1], [US2], [US3], etc. (maps to user stories from spec.md)
    - Setup phase: NO story label
-   - Foundational phase: NO story label  
+   - Foundational phase: NO story label
    - User Story phases: MUST have story label
    - Polish phase: NO story label
-5. **Description**: Clear action with exact file path
+5. **Description**: Clear action with exact file path(s) — include both implementation and test file paths
 
 **Examples**:
 
 - ✅ CORRECT: `- [ ] T001 Create project structure per implementation plan`
-- ✅ CORRECT: `- [ ] T005 [P] Implement authentication middleware in src/middleware/auth.py`
-- ✅ CORRECT: `- [ ] T012 [P] [US1] Create User model in src/models/user.py`
-- ✅ CORRECT: `- [ ] T014 [US1] Implement UserService in src/services/user_service.py`
+- ✅ CORRECT: `- [ ] T005 [P] Implement authentication middleware in src/middleware/auth.py + tests/test_auth.py`
+- ✅ CORRECT: `- [ ] T012 [P] [US1] Create User model with validation in src/models/user.py + tests/test_user.py`
+- ✅ CORRECT: `- [ ] T014 [US1] Implement UserService create operation in src/services/user_service.py + tests/test_user_service.py`
 - ❌ WRONG: `- [ ] Create User model` (missing ID and Story label)
 - ❌ WRONG: `T001 [US1] Create model` (missing checkbox)
 - ❌ WRONG: `- [ ] [US1] Create User model` (missing Task ID)
 - ❌ WRONG: `- [ ] T001 [US1] Create model` (missing file path)
+- ❌ WRONG: `- [ ] T010 [US1] Write tests for User model` then `- [ ] T011 [US1] Implement User model` (tests must NOT be separate tasks)
 
 ### Task Organization
 
 1. **From User Stories (spec.md)** - PRIMARY ORGANIZATION:
    - Each user story (P1, P2, P3...) gets its own phase
    - Map all related components to their story:
-     - Models needed for that story
-     - Services needed for that story
-     - Interfaces/UI needed for that story
-     - If tests requested: Tests specific to that story
+     - Models needed for that story (each with TDD)
+     - Services needed for that story (each with TDD)
+     - Interfaces/UI needed for that story (each with TDD)
    - Mark story dependencies (most stories should be independent)
 
 2. **From Contracts**:
    - Map each interface contract → to the user story it serves
-   - If tests requested: Each interface contract → contract test task [P] before implementation in that story's phase
+   - Contract tests are written as part of the implementation task for each endpoint, not as separate tasks
 
 3. **From Data Model**:
    - Map each entity to the user story(ies) that need it
@@ -195,6 +198,6 @@ Every task MUST strictly follow this format:
 - **Phase 1**: Setup (project initialization)
 - **Phase 2**: Foundational (blocking prerequisites - MUST complete before user stories)
 - **Phase 3+**: User Stories in priority order (P1, P2, P3...)
-  - Within each story: Tests (if requested) → Models → Services → Endpoints → Integration
+  - Within each story: Models → Services → Endpoints → Integration (each task includes TDD)
   - Each phase should be a complete, independently testable increment
 - **Final Phase**: Polish & Cross-Cutting Concerns
