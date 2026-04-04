@@ -1,0 +1,23 @@
+{
+  "name": "@ccdevkit/ccbox",
+  "version": "0.1.0",
+  "description": "Docker-sandboxed Claude Code runner",
+  "bin": {
+    "ccbox": "./bin/ccbox"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

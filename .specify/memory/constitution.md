@@ -89,7 +89,7 @@ brittle suites.
 
 ### VII. Red-Green-Refactor TDD
 
-All new code MUST be developed using the Red-Green-Refactor cycle:
+All new code MUST EITHER be developed using the Red-Green-Refactor cycle OR include explicit justification for exemption in code comments and the Complexity Tracking table:
 
 1. **Red**: Write a failing test that defines the expected behavior
    before writing any implementation code. The test MUST compile and
@@ -145,10 +145,6 @@ codebase and produces a living specification of system behavior.
 - **TDD cycle**: All new features and bug fixes MUST follow
   Red-Green-Refactor (Principle VII). Implementation PRs without
   corresponding test-first commits MUST be rejected at review.
-- **Configuration precedence**: CLI flags > environment variables >
-  local config > global config > defaults.
-- **CLI entry points**: `main()` calls `run() error`, handles exit
-  codes. Flag parsing uses the stdlib `flag` package.
 - **Code review gates**: File organization correct, dependency direction
   downward, errors wrapped with context, doc comments on all exports,
   tests written before or alongside implementation, tests cover happy
