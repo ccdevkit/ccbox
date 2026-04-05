@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ccdevkit/ccbox/internal/bridge"
+	"github.com/ccdevkit/ccbox/internal/permissions"
 )
 
 func TestHandleExec_SuccessfulCommand(t *testing.T) {
@@ -122,5 +123,85 @@ func TestHandleExec_CwdFromRequest(t *testing.T) {
 	got := strings.TrimSpace(string(output))
 	if got != "found" {
 		t.Fatalf("expected output %q, got %q", "found", got)
+	}
+}
+
+func newTestChecker(t *testing.T) *permissions.Checker {
+	t.Helper()
+	config := &permissions.PermissionsConfig{
+		Passthrough: map[string]*permissions.CommandPermission{
+			"echo": {Rules: []permissions.Rule{
+				{Pattern: permissions.PatternOrArray{Values: []string{"**"}}, Effect: "allow"},
+			}},
+			"git": {Rules: []permissions.Rule{
+				{Pattern: permissions.PatternOrArray{Values: []string{"**"}}, Effect: "deny"},
+			}},
+		},
+	}
+	checker, err := permissions.NewChecker(config, nil)
+	if err != nil {
+		t.Fatalf("failed to create checker: %v", err)
+	}
+	return checker
+}
+
+func TestPermissionAwareHandler_DeniedCommand(t *testing.T) {
+	handler := NewPermissionAwareHandler(newTestChecker(t))
+
+	exitCode, output := handler(bridge.ExecRequest{
+		Type:    "exec",
+		Command: "git push",
+		Cwd:     t.TempDir(),
+	})
+
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitCode)
+	}
+	if !strings.Contains(string(output), "Permission denied") {
+		t.Fatalf("expected denial message, got %q", string(output))
+	}
+}
+
+func TestPermissionAwareHandler_AllowedCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh -c not available on windows")
+	}
+
+	handler := NewPermissionAwareHandler(newTestChecker(t))
+
+	exitCode, output := handler(bridge.ExecRequest{
+		Type:    "exec",
+		Command: "echo hello",
+		Cwd:     t.TempDir(),
+	})
+
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d", exitCode)
+	}
+	got := strings.TrimSpace(string(output))
+	if got != "hello" {
+		t.Fatalf("expected output %q, got %q", "hello", got)
+	}
+}
+
+func TestPermissionAwareHandler_NilChecker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh -c not available on windows")
+	}
+
+	handler := NewPermissionAwareHandler(nil)
+
+	exitCode, output := handler(bridge.ExecRequest{
+		Type:    "exec",
+		Command: "echo unconditional",
+		Cwd:     t.TempDir(),
+	})
+
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d", exitCode)
+	}
+	got := strings.TrimSpace(string(output))
+	if got != "unconditional" {
+		t.Fatalf("expected output %q, got %q", "unconditional", got)
 	}
 }

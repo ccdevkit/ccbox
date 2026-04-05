@@ -9,6 +9,7 @@ import (
 // FileSystem abstracts filesystem operations for testability.
 type FileSystem interface {
 	Stat(path string) (os.FileInfo, error)
+	ReadFile(path string) ([]byte, error)
 }
 
 // ClaudeArg represents a single argument destined for the Claude CLI.
@@ -28,6 +29,7 @@ type ParsedArgs struct {
 	Help        bool
 	Subcommand  string // "update", "clean", or ""
 	CleanAll    bool   // clean --all: remove all images including latest
+	CleanForce  bool   // clean --force: stop running containers before removing images
 	ClaudeArgs  []ClaudeArg
 }
 
@@ -110,6 +112,11 @@ func parseCcboxFlags(args []string, result *ParsedArgs) error {
 				return fmt.Errorf("--all is only valid with the clean subcommand")
 			}
 			result.CleanAll = true
+		case a == "--force":
+			if result.Subcommand != "clean" {
+				return fmt.Errorf("--force is only valid with the clean subcommand")
+			}
+			result.CleanForce = true
 		case a == "update" || a == "clean":
 			if result.Subcommand != "" {
 				return fmt.Errorf("multiple subcommands: %q and %q", result.Subcommand, a)

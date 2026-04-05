@@ -6,7 +6,7 @@ BINARIES := ccbox ccptproxy ccclipd ccdebug
 
 DOCKER_IMAGE := ghcr.io/ccdevkit/ccbox-base:dev
 
-.PHONY: build install docker run clean test $(BINARIES)
+.PHONY: build install docker run clean rebuild test $(BINARIES)
 
 ## build: Compile all binaries into bin/
 build: $(BINARIES)
@@ -30,6 +30,10 @@ run: build
 ## test: Run all tests
 test:
 	go test ./...
+
+## rebuild: Build, rebuild Docker image, and clean containers
+rebuild: build docker
+	./bin/ccbox clean --all --force
 
 ## clean: Remove build artifacts
 clean:

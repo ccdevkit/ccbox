@@ -15,6 +15,8 @@ type ImageManager interface {
 	BuildImage(imageName string, dockerfile string, context string) error
 	RemoveImage(imageName string) error
 	ListImages(prefix string) ([]string, error)
+	ListContainersForImage(imageName string) ([]string, error)
+	StopAndRemoveContainer(containerID string) error
 }
 
 // EnsureLocalImage ensures the correct local Docker image exists.
@@ -120,7 +122,8 @@ func ParseImageTag(tag string) (ccboxVersion, claudeVersion string, err error) {
 }
 
 // CleanAllImages removes all ccbox-managed Docker images unconditionally.
-func CleanAllImages(mgr ImageManager, w io.Writer) error {
+// If force is true, running containers using the images are stopped first.
+func CleanAllImages(mgr ImageManager, w io.Writer, force bool) error {
 	images, err := mgr.ListImages(constants.ImageNamePrefix)
 	if err != nil {
 		return fmt.Errorf("listing images: %w", err)
@@ -130,6 +133,9 @@ func CleanAllImages(mgr ImageManager, w io.Writer) error {
 		return nil
 	}
 	for _, img := range images {
+		if err := handleContainers(mgr, img, w, force); err != nil {
+			return err
+		}
 		fmt.Fprintf(w, "Removing %s...\n", img)
 		if rmErr := mgr.RemoveImage(img); rmErr != nil {
 			return fmt.Errorf("removing image %s: %w", img, rmErr)
@@ -142,7 +148,8 @@ func CleanAllImages(mgr ImageManager, w io.Writer) error {
 // CleanImages removes all ccbox-managed Docker images except the latest
 // auto-update image (FR-038). The latest auto-update image is the last
 // non-pinned image in the list returned by ListImages.
-func CleanImages(mgr ImageManager, w io.Writer) error {
+// If force is true, running containers using the images are stopped first.
+func CleanImages(mgr ImageManager, w io.Writer, force bool) error {
 	images, err := mgr.ListImages(constants.ImageNamePrefix)
 	if err != nil {
 		return fmt.Errorf("listing images: %w", err)
@@ -163,6 +170,9 @@ func CleanImages(mgr ImageManager, w io.Writer) error {
 			fmt.Fprintf(w, "Keeping %s (latest)\n", img)
 			continue
 		}
+		if err := handleContainers(mgr, img, w, force); err != nil {
+			return err
+		}
 		fmt.Fprintf(w, "Removing %s...\n", img)
 		if rmErr := mgr.RemoveImage(img); rmErr != nil {
 			return fmt.Errorf("removing image %s: %w", img, rmErr)
@@ -176,6 +186,29 @@ func CleanImages(mgr ImageManager, w io.Writer) error {
 		fmt.Fprintf(w, "Removed %d image(s).\n", removed)
 	}
 
+	return nil
+}
+
+// handleContainers checks for containers using the given image.
+// If containers exist and force is false, returns a helpful error.
+// If force is true, stops and removes them.
+func handleContainers(mgr ImageManager, imageName string, w io.Writer, force bool) error {
+	containers, err := mgr.ListContainersForImage(imageName)
+	if err != nil {
+		return fmt.Errorf("checking containers for %s: %w", imageName, err)
+	}
+	if len(containers) == 0 {
+		return nil
+	}
+	if !force {
+		return fmt.Errorf("cannot remove %s: %d running container(s) using this image; use --force to stop them", imageName, len(containers))
+	}
+	for _, cid := range containers {
+		fmt.Fprintf(w, "Stopping container %s...\n", cid)
+		if err := mgr.StopAndRemoveContainer(cid); err != nil {
+			return fmt.Errorf("removing container %s: %w", cid, err)
+		}
+	}
 	return nil
 }
 

@@ -6,7 +6,6 @@ import (
 
 	"github.com/ccdevkit/ccbox/internal/args"
 	"github.com/ccdevkit/ccbox/internal/bridge"
-	"github.com/ccdevkit/ccbox/internal/cmdpassthrough"
 	"github.com/ccdevkit/ccbox/internal/constants"
 	"github.com/ccdevkit/ccbox/internal/docker"
 	"github.com/ccdevkit/ccbox/internal/logger"
@@ -20,6 +19,10 @@ type osFS struct{}
 
 func (osFS) Stat(path string) (os.FileInfo, error) {
 	return os.Stat(path)
+}
+
+func (osFS) ReadFile(path string) ([]byte, error) {
+	return os.ReadFile(path)
 }
 
 func main() {
@@ -82,9 +85,9 @@ func runClean(parsed *args.ParsedArgs) {
 	mgr := docker.NewCLIImageManager()
 	var err error
 	if parsed.CleanAll {
-		err = docker.CleanAllImages(mgr, os.Stderr)
+		err = docker.CleanAllImages(mgr, os.Stderr, parsed.CleanForce)
 	} else {
-		err = docker.CleanImages(mgr, os.Stderr)
+		err = docker.CleanImages(mgr, os.Stderr, parsed.CleanForce)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ccbox clean: %v\n", err)
@@ -100,16 +103,19 @@ func runDefault(parsed *args.ParsedArgs) {
 	}
 	defer log.Close()
 
-	srv := bridge.NewServer(cmdpassthrough.HandleExec, bridge.NewLogHandler(log))
+	logHandler := bridge.NewLogHandler(log)
 	deps := &orchestrationDeps{
-		dockerChecker:   realDockerChecker{},
-		tokenCapture:    &realTokenCapturer{runner: realCLIRunner{}, log: log},
-		versionDetect:   &realVersionDetector{runner: execVersionRunner{}},
-		imageEnsurer:    &realImageEnsurer{mgr: docker.NewCLIImageManager()},
+		dockerChecker: realDockerChecker{},
+		tokenCapture:  &realTokenCapturer{runner: realCLIRunner{}, log: log},
+		versionDetect: &realVersionDetector{runner: execVersionRunner{}},
+		imageEnsurer:  &realImageEnsurer{mgr: docker.NewCLIImageManager()},
 		containerRunner: realContainerRunner{},
-		bridgeServer:    srv,
-		ccboxVersion:    version,
-		log:             log,
+		bridgeServerFactory: func(execHandler bridge.ExecHandler) BridgeServer {
+			return bridge.NewServer(execHandler, logHandler)
+		},
+		ccboxVersion: version,
+		log:          log,
+		fs:           osFS{},
 	}
 
 	os.Exit(runOrchestration(parsed, deps))

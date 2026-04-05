@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ccdevkit/ccbox/internal/args"
 	"github.com/ccdevkit/ccbox/internal/constants"
 	"github.com/ccdevkit/ccbox/internal/session"
 )
@@ -79,14 +80,76 @@ func ensureClaudeJSON() (string, error) {
 	return hostPath, nil
 }
 
-// writeSystemPrompt writes a markdown system prompt containing the allowed
-// command list into the container at SystemPromptContainerPath.
-func writeSystemPrompt(fw session.SessionFileWriter, commands []string) error {
+// buildCcboxSystemPrompt returns the ccbox system prompt content describing
+// the container environment and, if non-empty, the allowed passthrough commands.
+func buildCcboxSystemPrompt(commands []string) string {
 	var b strings.Builder
-	b.WriteString("# Allowed Host Commands\n\n")
-	b.WriteString("The following commands are available for execution on the host:\n\n")
-	for _, cmd := range commands {
-		fmt.Fprintf(&b, "- `%s`\n", cmd)
+	b.WriteString("# ccbox Environment\n\n")
+	b.WriteString("You are running inside ccbox, a container-based pseudo-sandbox. ")
+	b.WriteString("This gives you broad freedom within the container, but it is not a fully isolated security boundary.\n\n")
+	b.WriteString("## Key constraints\n\n")
+	b.WriteString("- The **only directory shared with the host** is the project directory (your current working directory). Changes there are immediately visible on the host.\n")
+	b.WriteString("- `/tmp` is local to the container — use it freely for scratch files, build artifacts, etc.\n")
+	b.WriteString("- **MCP tools** (`mcp__*`) execute on the host, outside the sandbox. Treat them with the same caution you would give any host-side operation.\n")
+	b.WriteString("- **Passthrough tools** also execute on the host. Be careful with destructive or sensitive operations.\n")
+
+	if len(commands) > 0 {
+		b.WriteString("\n## Allowed Host Commands\n\n")
+		b.WriteString("The following commands are available for execution on the host:\n\n")
+		for _, cmd := range commands {
+			fmt.Fprintf(&b, "- `%s`\n", cmd)
+		}
 	}
-	return fw.WriteFile(constants.SystemPromptContainerPath, []byte(b.String()), true)
+
+	return b.String()
+}
+
+// appendScanResult holds the result of scanning ClaudeArgs for append system
+// prompt flags.
+type appendScanResult struct {
+	UserContent  string // user's append text (inline or from file)
+	StripIndices []int  // indices into ClaudeArgs to remove
+}
+
+// scanAppendArgs scans ClaudeArgs for --append-system-prompt and
+// --append-system-prompt-file, extracting user content and recording which
+// indices to strip from the final args. Returns an error if both append flags
+// are present (they are mutually exclusive in Claude Code).
+func scanAppendArgs(claudeArgs []args.ClaudeArg, fs args.FileSystem) (appendScanResult, error) {
+	var result appendScanResult
+	var foundInline, foundFile bool
+
+	for i := 0; i < len(claudeArgs); i++ {
+		switch claudeArgs[i].Value {
+		case "--append-system-prompt":
+			if foundFile {
+				return result, fmt.Errorf("--append-system-prompt and --append-system-prompt-file are mutually exclusive")
+			}
+			foundInline = true
+			result.StripIndices = append(result.StripIndices, i)
+			if i+1 < len(claudeArgs) {
+				i++
+				result.UserContent = claudeArgs[i].Value
+				result.StripIndices = append(result.StripIndices, i)
+			}
+
+		case "--append-system-prompt-file":
+			if foundInline {
+				return result, fmt.Errorf("--append-system-prompt and --append-system-prompt-file are mutually exclusive")
+			}
+			foundFile = true
+			result.StripIndices = append(result.StripIndices, i)
+			if i+1 < len(claudeArgs) {
+				i++
+				result.StripIndices = append(result.StripIndices, i)
+				data, err := fs.ReadFile(claudeArgs[i].Value)
+				if err != nil {
+					return result, fmt.Errorf("read --append-system-prompt-file %q: %w", claudeArgs[i].Value, err)
+				}
+				result.UserContent = string(data)
+			}
+		}
+	}
+
+	return result, nil
 }

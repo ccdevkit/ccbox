@@ -16,16 +16,14 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/ccptproxy ./cmd/ccptprox
 
 # Stage 2: Runtime image
 # Multi-arch: linux/amd64 + linux/arm64 (FR-033)
-FROM node:22-slim
+FROM debian:bookworm-slim
 
 # Install system packages (I14)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
     curl \
     ca-certificates \
     netcat-openbsd \
     gosu \
-    openssh-client \
     jq \
     ripgrep \
     make \
@@ -34,9 +32,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim-tiny \
     xvfb \
     xclip \
+    patch \
+    file \
+    unzip \
+    zip \
     && rm -rf /var/lib/apt/lists/*
 
-# Create claude user with UID 1001 to avoid conflict with node user at UID 1000 (I13)
+# Create claude user (I13)
 RUN groupadd --gid 1001 claude && \
     useradd --uid 1001 --gid 1001 --create-home --shell /bin/bash claude
 

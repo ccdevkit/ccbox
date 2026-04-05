@@ -2,11 +2,19 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/ccdevkit/ccbox/internal/args"
+	"github.com/ccdevkit/ccbox/internal/bridge"
 	"github.com/ccdevkit/ccbox/internal/docker"
 )
+
+// testFS implements args.FileSystem for orchestration tests.
+type testFS struct{}
+
+func (testFS) Stat(path string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+func (testFS) ReadFile(path string) ([]byte, error)   { return nil, os.ErrNotExist }
 
 // --- Mock dependencies for orchestration testing ---
 
@@ -69,6 +77,7 @@ func defaultDeps() *orchestrationDeps {
 		bridgeServer:    &mockBridgeServer{port: 12345},
 		containerRunner: &mockContainerRunner{exitCode: 0},
 		ccboxVersion:    "0.2.0",
+		fs:              testFS{},
 	}
 }
 
@@ -93,6 +102,61 @@ func TestOrchestration_ImageBuildFailure_ReturnsExitCode1(t *testing.T) {
 
 	if exitCode != 1 {
 		t.Fatalf("expected exit code 1 on image build failure, got %d", exitCode)
+	}
+}
+
+// mockBridgeServerWithHandler records the exec handler passed via the factory.
+type mockBridgeServerWithHandler struct {
+	port        int
+	err         error
+	execHandler bridge.ExecHandler
+}
+
+func (m *mockBridgeServerWithHandler) Start() (int, error) { return m.port, m.err }
+func (m *mockBridgeServerWithHandler) Stop() error          { return nil }
+
+func TestOrchestration_NoPermissionsNoPassthrough_BackwardCompat(t *testing.T) {
+	// No permissions file exists, no CLI passthrough flags.
+	// The orchestration should succeed with backward-compatible behavior:
+	// checker is nil → NewPermissionAwareHandler(nil) returns HandleExec.
+	mock := &mockBridgeServerWithHandler{port: 12345}
+	deps := defaultDeps()
+	deps.bridgeServerFactory = func(execHandler bridge.ExecHandler) BridgeServer {
+		mock.execHandler = execHandler
+		return mock
+	}
+
+	parsed := &args.ParsedArgs{}
+	exitCode := runOrchestration(parsed, deps)
+
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0 with no permissions/passthrough, got %d", exitCode)
+	}
+	if mock.execHandler == nil {
+		t.Fatal("bridge server factory was not called with an exec handler")
+	}
+}
+
+func TestOrchestration_CLIPassthrough_FactoryReceivesHandler(t *testing.T) {
+	// CLI passthrough flags are set. The factory should receive a
+	// permission-aware exec handler (not nil).
+	mock := &mockBridgeServerWithHandler{port: 12345}
+	deps := defaultDeps()
+	deps.bridgeServerFactory = func(execHandler bridge.ExecHandler) BridgeServer {
+		mock.execHandler = execHandler
+		return mock
+	}
+
+	parsed := &args.ParsedArgs{
+		Passthrough: []string{"git"},
+	}
+	exitCode := runOrchestration(parsed, deps)
+
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0 with CLI passthrough, got %d", exitCode)
+	}
+	if mock.execHandler == nil {
+		t.Fatal("bridge server factory was not called with an exec handler")
 	}
 }
 

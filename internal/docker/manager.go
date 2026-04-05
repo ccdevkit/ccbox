@@ -76,6 +76,38 @@ func (m *CLIImageManager) RemoveImage(imageName string) error {
 	return nil
 }
 
+// ListContainersForImage returns container IDs (running or stopped) using the given image.
+func (m *CLIImageManager) ListContainersForImage(imageName string) ([]string, error) {
+	out, err := m.Runner.Output("docker", "ps", "-a", "--filter", "ancestor="+imageName, "--format", "{{.ID}}")
+	if err != nil {
+		return nil, fmt.Errorf("listing containers for image %s: %w", imageName, err)
+	}
+	trimmed := bytes.TrimSpace(out)
+	if len(trimmed) == 0 {
+		return nil, nil
+	}
+	lines := strings.Split(string(trimmed), "\n")
+	var result []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+	return result, nil
+}
+
+// StopAndRemoveContainer stops and removes a container by ID.
+// The rm call uses -f to handle containers that were already removed by --rm.
+func (m *CLIImageManager) StopAndRemoveContainer(containerID string) error {
+	if err := m.Runner.Run("docker", "stop", containerID); err != nil {
+		return fmt.Errorf("stopping container %s: %w", containerID, err)
+	}
+	// Use rm -f: the container may already be gone if it was started with --rm.
+	_ = m.Runner.Run("docker", "rm", containerID)
+	return nil
+}
+
 // ListImages lists Docker images matching the given prefix.
 // Returns image names in the format "repository:tag".
 func (m *CLIImageManager) ListImages(prefix string) ([]string, error) {

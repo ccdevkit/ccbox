@@ -1,8 +1,10 @@
 # ccbox Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-25
+Auto-generated from all feature plans. Last updated: 2026-04-04
 
 ## Active Technologies
+- Go 1.24 (toolchain go1.24.5) + `ccdevkit/common` (settings package for hierarchical file discovery), stdlib (`regexp`, `strings`, `fmt`) (002-passthrough-permissions)
+- Filesystem — `.ccbox/permissions.{json,yml,yaml}` discovered hierarchically (002-passthrough-permissions)
 
 - Go 1.24 (toolchain go1.24.5) + `creack/pty` (Unix PTY), `aymanbagabas/go-pty` (Windows PTY), `google/uuid`, `ccdevkit/common` (settings library), `golang.design/x/clipboard`, `golang.org/x/term`, `golang.org/x/image` (WebP/BMP/TIFF decoding) (001-ccbox-rewrite)
 
@@ -39,6 +41,7 @@ internal/
 Go 1.24 (toolchain go1.24.5): Follow standard conventions
 
 ## Recent Changes
+- 002-passthrough-permissions: Added Go 1.24 (toolchain go1.24.5) + `ccdevkit/common` (settings package for hierarchical file discovery), stdlib (`regexp`, `strings`, `fmt`)
 
 - 001-ccbox-rewrite: Added Go 1.24 (toolchain go1.24.5) + `creack/pty` (Unix PTY), `aymanbagabas/go-pty` (Windows PTY), `google/uuid`, `ccdevkit/common` (settings library), `golang.design/x/clipboard`, `golang.org/x/term`
 

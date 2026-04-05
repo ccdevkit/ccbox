@@ -6,7 +6,24 @@ import (
 	"syscall"
 
 	"github.com/ccdevkit/ccbox/internal/bridge"
+	"github.com/ccdevkit/ccbox/internal/permissions"
 )
+
+// NewPermissionAwareHandler returns an exec handler function that checks
+// permissions before delegating to HandleExec. If checker is nil, delegates
+// unconditionally (backward compat).
+func NewPermissionAwareHandler(checker *permissions.Checker) func(bridge.ExecRequest) (int, []byte) {
+	if checker == nil {
+		return HandleExec
+	}
+	return func(req bridge.ExecRequest) (int, []byte) {
+		result := checker.Check(req.Command)
+		if !result.Allowed {
+			return 1, []byte("Permission denied: " + result.Reason + "\n")
+		}
+		return HandleExec(req)
+	}
+}
 
 // HandleExec executes a command via sh -c and returns the exit code and
 // combined stdout+stderr output. The working directory is set from the request.

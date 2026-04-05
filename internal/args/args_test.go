@@ -17,6 +17,13 @@ func (m *mockFS) Stat(path string) (os.FileInfo, error) {
 	return nil, os.ErrNotExist
 }
 
+func (m *mockFS) ReadFile(path string) ([]byte, error) {
+	if m.files[path] {
+		return nil, nil
+	}
+	return nil, os.ErrNotExist
+}
+
 func newMockFS(paths ...string) *mockFS {
 	m := &mockFS{files: make(map[string]bool)}
 	for _, p := range paths {

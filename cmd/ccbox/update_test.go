@@ -122,3 +122,11 @@ func (m *testImageManager) RemoveImage(imageName string) error {
 func (m *testImageManager) ListImages(prefix string) ([]string, error) {
 	return m.listResult, nil
 }
+
+func (m *testImageManager) ListContainersForImage(imageName string) ([]string, error) {
+	return nil, nil
+}
+
+func (m *testImageManager) StopAndRemoveContainer(containerID string) error {
+	return nil
+}

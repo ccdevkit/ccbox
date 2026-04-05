@@ -10,12 +10,14 @@ import (
 	"sync"
 
 	"github.com/ccdevkit/ccbox/internal/args"
+	"github.com/ccdevkit/ccbox/internal/bridge"
 	"github.com/ccdevkit/ccbox/internal/claude"
 	"github.com/ccdevkit/ccbox/internal/clipboard"
 	"github.com/ccdevkit/ccbox/internal/cmdpassthrough"
 	"github.com/ccdevkit/ccbox/internal/constants"
 	"github.com/ccdevkit/ccbox/internal/docker"
 	"github.com/ccdevkit/ccbox/internal/logger"
+	"github.com/ccdevkit/ccbox/internal/permissions"
 	"github.com/ccdevkit/ccbox/internal/session"
 	"github.com/ccdevkit/ccbox/internal/settings"
 	"github.com/ccdevkit/ccbox/internal/terminal"
@@ -59,16 +61,21 @@ type BridgeServer interface {
 	Stop() error
 }
 
+// BridgeServerFactory creates a BridgeServer with the given exec handler.
+type BridgeServerFactory func(execHandler bridge.ExecHandler) BridgeServer
+
 // orchestrationDeps holds all injectable dependencies for the main orchestration.
 type orchestrationDeps struct {
-	dockerChecker   DockerChecker
-	tokenCapture    TokenCapturer
-	versionDetect   VersionDetector
-	imageEnsurer    ImageEnsurer
-	containerRunner ContainerRunner
-	bridgeServer    BridgeServer
-	ccboxVersion    string
-	log             *logger.Logger
+	dockerChecker      DockerChecker
+	tokenCapture       TokenCapturer
+	versionDetect      VersionDetector
+	imageEnsurer       ImageEnsurer
+	containerRunner    ContainerRunner
+	bridgeServer       BridgeServer       // pre-built bridge server (used if bridgeServerFactory is nil)
+	bridgeServerFactory BridgeServerFactory // factory to create bridge server with exec handler
+	ccboxVersion       string
+	log                *logger.Logger
+	fs                 args.FileSystem
 }
 
 // runOrchestration implements the main orchestration flow.
@@ -165,17 +172,36 @@ func runOrchestration(parsed *args.ParsedArgs, deps *orchestrationDeps) int {
 	c.Token = token
 	log.Debug("orchestrate", "claude initialized")
 
-	// Step 7: Command passthrough setup.
-	ptCommands := cmdpassthrough.Merge(merged.Passthrough)
+	// Step 7: Command passthrough setup — create live-reloading permission checker.
+	// The checker automatically re-reads config files every ~1s so changes
+	// to .ccbox/permissions.{json,yml,yaml} take effect without restart.
+	checker, err := permissions.NewLiveChecker(cmdpassthrough.Merge(merged.Passthrough))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ccbox: creating permission checker: %v\n", err)
+		return 1
+	}
+
+	var ptCommands []string
+	if checker != nil {
+		ptCommands = checker.Commands()
+	}
 	log.Debug("orchestrate", "passthrough commands: %v", ptCommands)
 
 	// Step 8: Start bridge TCP server (needed for passthrough port in proxy config).
-	bridgePort, err := deps.bridgeServer.Start()
+	execHandler := cmdpassthrough.NewPermissionAwareHandler(checker)
+
+	var srv BridgeServer
+	if deps.bridgeServerFactory != nil {
+		srv = deps.bridgeServerFactory(execHandler)
+	} else {
+		srv = deps.bridgeServer
+	}
+	bridgePort, err := srv.Start()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ccbox: starting bridge server: %v\n", err)
 		return 1
 	}
-	defer deps.bridgeServer.Stop()
+	defer srv.Stop()
 	log.Debug("orchestrate", "bridge server started on port %d", bridgePort)
 
 	if len(ptCommands) > 0 {
@@ -200,7 +226,7 @@ func runOrchestration(parsed *args.ParsedArgs, deps *orchestrationDeps) int {
 	}
 
 	// Step 9: BuildRunSpec.
-	runSpec, err := c.BuildRunSpec(parsed, merged)
+	runSpec, err := c.BuildRunSpec(parsed, merged, deps.fs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ccbox: building run spec: %v\n", err)
 		return 1

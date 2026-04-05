@@ -71,14 +71,16 @@ func TestParseImageTag_MultipleHyphens(t *testing.T) {
 
 // mockImageManager records calls to ImageManager methods for testing.
 type mockImageManager struct {
-	existingImages map[string]bool
-	builtImages    []string
-	removedImages  []string
-	listedPrefix   string
-	listResult     []string
-	buildErr       error
-	removeErr      error
-	listErr        error
+	existingImages    map[string]bool
+	builtImages       []string
+	removedImages     []string
+	listedPrefix      string
+	listResult        []string
+	buildErr          error
+	removeErr         error
+	listErr           error
+	containersForImage map[string][]string // image → container IDs
+	stoppedContainers  []string
 }
 
 func newMockImageManager() *mockImageManager {
@@ -106,6 +108,18 @@ func (m *mockImageManager) RemoveImage(imageName string) error {
 	}
 	m.removedImages = append(m.removedImages, imageName)
 	delete(m.existingImages, imageName)
+	return nil
+}
+
+func (m *mockImageManager) ListContainersForImage(imageName string) ([]string, error) {
+	if m.containersForImage != nil {
+		return m.containersForImage[imageName], nil
+	}
+	return nil, nil
+}
+
+func (m *mockImageManager) StopAndRemoveContainer(containerID string) error {
+	m.stoppedContainers = append(m.stoppedContainers, containerID)
 	return nil
 }
 
@@ -351,7 +365,7 @@ func TestCleanImages_PreservesLatestAutoUpdate(t *testing.T) {
 		"ccbox-local:0.2.0-2.1.16",
 	}
 
-	err := CleanImages(mgr, io.Discard)
+	err := CleanImages(mgr, io.Discard, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -376,7 +390,7 @@ func TestCleanImages_RemovesAllOtherImages(t *testing.T) {
 		"ccbox-local:0.2.0-2.1.16",
 	}
 
-	err := CleanImages(mgr, io.Discard)
+	err := CleanImages(mgr, io.Discard, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -407,7 +421,7 @@ func TestCleanAllImages_RemovesEverything(t *testing.T) {
 		"ccbox-local:pinned-0.2.0-2.1.16",
 	}
 
-	err := CleanAllImages(mgr, io.Discard)
+	err := CleanAllImages(mgr, io.Discard, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -420,11 +434,68 @@ func TestCleanImages_EmptyImageList(t *testing.T) {
 	mgr := newMockImageManager()
 	mgr.listResult = nil
 
-	err := CleanImages(mgr, io.Discard)
+	err := CleanImages(mgr, io.Discard, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(mgr.removedImages) != 0 {
 		t.Fatalf("expected no removals for empty list, got %v", mgr.removedImages)
+	}
+}
+
+func TestCleanAllImages_ErrorsOnRunningContainers(t *testing.T) {
+	mgr := newMockImageManager()
+	mgr.listResult = []string{"ccbox-local:0.1.0-2.1.0"}
+	mgr.containersForImage = map[string][]string{
+		"ccbox-local:0.1.0-2.1.0": {"abc123"},
+	}
+
+	err := CleanAllImages(mgr, io.Discard, false)
+	if err == nil {
+		t.Fatal("expected error for running containers, got nil")
+	}
+	if !strings.Contains(err.Error(), "running container") {
+		t.Errorf("expected error about running containers, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "--force") {
+		t.Errorf("expected error to mention --force, got: %v", err)
+	}
+}
+
+func TestCleanAllImages_ForceStopsContainers(t *testing.T) {
+	mgr := newMockImageManager()
+	mgr.listResult = []string{"ccbox-local:0.1.0-2.1.0"}
+	mgr.containersForImage = map[string][]string{
+		"ccbox-local:0.1.0-2.1.0": {"abc123", "def456"},
+	}
+
+	err := CleanAllImages(mgr, io.Discard, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mgr.stoppedContainers) != 2 {
+		t.Fatalf("expected 2 stopped containers, got %v", mgr.stoppedContainers)
+	}
+	if len(mgr.removedImages) != 1 {
+		t.Fatalf("expected 1 removed image, got %v", mgr.removedImages)
+	}
+}
+
+func TestCleanImages_ErrorsOnRunningContainers(t *testing.T) {
+	mgr := newMockImageManager()
+	mgr.listResult = []string{
+		"ccbox-local:0.1.0-2.1.0",
+		"ccbox-local:0.2.0-2.1.16",
+	}
+	mgr.containersForImage = map[string][]string{
+		"ccbox-local:0.1.0-2.1.0": {"abc123"},
+	}
+
+	err := CleanImages(mgr, io.Discard, false)
+	if err == nil {
+		t.Fatal("expected error for running containers, got nil")
+	}
+	if !strings.Contains(err.Error(), "--force") {
+		t.Errorf("expected error to mention --force, got: %v", err)
 	}
 }

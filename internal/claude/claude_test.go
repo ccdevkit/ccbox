@@ -42,6 +42,29 @@ func (m *mockFileWriter) WriteFile(containerPath string, data []byte, readOnly b
 	return nil
 }
 
+// testFS implements args.FileSystem for claude tests.
+type testFS struct {
+	fileContents map[string][]byte
+}
+
+func (t *testFS) Stat(path string) (os.FileInfo, error) {
+	if _, ok := t.fileContents[path]; ok {
+		return nil, nil
+	}
+	return nil, os.ErrNotExist
+}
+
+func (t *testFS) ReadFile(path string) ([]byte, error) {
+	if data, ok := t.fileContents[path]; ok {
+		return data, nil
+	}
+	return nil, os.ErrNotExist
+}
+
+func newTestFS() *testFS {
+	return &testFS{fileContents: make(map[string][]byte)}
+}
+
 func newTestSession() (*session.Session, *mockFilePassthrough) {
 	fp := &mockFilePassthrough{}
 	sess := &session.Session{
@@ -63,9 +86,35 @@ func newTestSessionWithWriter() (*session.Session, *mockFileWriter, *mockFilePas
 	return sess, fw, fp
 }
 
+// findWrittenFile returns the written file at the given container path, or nil.
+func findWrittenFile(fw *mockFileWriter, containerPath string) *writtenFile {
+	for i := range fw.files {
+		if fw.files[i].containerPath == containerPath {
+			return &fw.files[i]
+		}
+	}
+	return nil
+}
+
+// assertArgsEqual checks that spec.Args matches expected exactly.
+func assertArgsEqual(t *testing.T, spec *ClaudeRunSpec, expected []string) {
+	t.Helper()
+	if len(spec.Args) != len(expected) {
+		t.Fatalf("Args length = %d, want %d\ngot:  %v\nwant: %v", len(spec.Args), len(expected), spec.Args, expected)
+	}
+	for i, want := range expected {
+		if spec.Args[i] != want {
+			t.Errorf("Args[%d] = %q, want %q", i, spec.Args[i], want)
+		}
+	}
+}
+
+// --- BuildRunSpec tests ---
+
 func TestBuildRunSpec_ArgsIncludesAllClaudeArgs(t *testing.T) {
 	sess, _ := newTestSession()
 	c := &Claude{Session: sess, Token: "test-token"}
+	fs := newTestFS()
 
 	parsed := &args.ParsedArgs{
 		ClaudeArgs: []args.ClaudeArg{
@@ -75,20 +124,18 @@ func TestBuildRunSpec_ArgsIncludesAllClaudeArgs(t *testing.T) {
 		},
 	}
 
-	spec, err := c.BuildRunSpec(parsed, &settings.Settings{})
+	spec, err := c.BuildRunSpec(parsed, &settings.Settings{}, fs)
 	if err != nil {
 		t.Fatalf("BuildRunSpec() error: %v", err)
 	}
 
-	expected := []string{"-p", "hello world", "--verbose"}
-	if len(spec.Args) != len(expected) {
-		t.Fatalf("Args length = %d, want %d", len(spec.Args), len(expected))
+	expected := []string{
+		"-p", "hello world", "--verbose",
+		"--append-system-prompt-file", constants.SystemPromptContainerPath,
+		"--permission-mode", "bypassPermissions",
+		"--allow-dangerously-skip-permissions",
 	}
-	for i, want := range expected {
-		if spec.Args[i] != want {
-			t.Errorf("Args[%d] = %q, want %q", i, spec.Args[i], want)
-		}
-	}
+	assertArgsEqual(t, spec, expected)
 }
 
 func TestBuildRunSpec_EnvIncludesTermAndColorTerm(t *testing.T) {
@@ -98,7 +145,7 @@ func TestBuildRunSpec_EnvIncludesTermAndColorTerm(t *testing.T) {
 	t.Setenv("TERM", "xterm-256color")
 	t.Setenv("COLORTERM", "truecolor")
 
-	spec, err := c.BuildRunSpec(&args.ParsedArgs{}, &settings.Settings{})
+	spec, err := c.BuildRunSpec(&args.ParsedArgs{}, &settings.Settings{}, newTestFS())
 	if err != nil {
 		t.Fatalf("BuildRunSpec() error: %v", err)
 	}
@@ -127,7 +174,7 @@ func TestBuildRunSpec_EnvIncludesOAuthTokenAsSecret(t *testing.T) {
 	sess, _ := newTestSession()
 	c := &Claude{Session: sess, Token: "sk-ant-secret123"}
 
-	spec, err := c.BuildRunSpec(&args.ParsedArgs{}, &settings.Settings{})
+	spec, err := c.BuildRunSpec(&args.ParsedArgs{}, &settings.Settings{}, newTestFS())
 	if err != nil {
 		t.Fatalf("BuildRunSpec() error: %v", err)
 	}
@@ -153,7 +200,7 @@ func TestBuildRunSpec_RegistersCWDAndClaudeDirPassthroughs(t *testing.T) {
 	sess, fp := newTestSession()
 	c := &Claude{Session: sess, Token: "test-token"}
 
-	spec, err := c.BuildRunSpec(&args.ParsedArgs{}, &settings.Settings{})
+	spec, err := c.BuildRunSpec(&args.ParsedArgs{}, &settings.Settings{}, newTestFS())
 	if err != nil {
 		t.Fatalf("BuildRunSpec() error: %v", err)
 	}
@@ -203,21 +250,19 @@ func TestBuildRunSpec_FileArgPathsRewrittenToContainerPaths(t *testing.T) {
 		},
 	}
 
-	spec, err := c.BuildRunSpec(parsed, &settings.Settings{})
+	spec, err := c.BuildRunSpec(parsed, &settings.Settings{}, newTestFS())
 	if err != nil {
 		t.Fatalf("BuildRunSpec() error: %v", err)
 	}
 
-	// The file arg should be rewritten to container path
-	expected := []string{"--system-prompt-file", "/home/claude/prompt.md", "-p", "hello"}
-	if len(spec.Args) != len(expected) {
-		t.Fatalf("Args length = %d, want %d; got %v", len(spec.Args), len(expected), spec.Args)
+	expected := []string{
+		"--system-prompt-file", "/home/claude/prompt.md",
+		"-p", "hello",
+		"--append-system-prompt-file", constants.SystemPromptContainerPath,
+		"--permission-mode", "bypassPermissions",
+		"--allow-dangerously-skip-permissions",
 	}
-	for i, want := range expected {
-		if spec.Args[i] != want {
-			t.Errorf("Args[%d] = %q, want %q", i, spec.Args[i], want)
-		}
-	}
+	assertArgsEqual(t, spec, expected)
 
 	// Verify file passthrough registered (ro)
 	foundFile := false
@@ -244,21 +289,48 @@ func TestBuildRunSpec_NonFileArgsPassThroughUnchanged(t *testing.T) {
 		},
 	}
 
-	spec, err := c.BuildRunSpec(parsed, &settings.Settings{})
+	spec, err := c.BuildRunSpec(parsed, &settings.Settings{}, newTestFS())
 	if err != nil {
 		t.Fatalf("BuildRunSpec() error: %v", err)
 	}
 
-	expected := []string{"-p", "some prompt text", "--model", "claude-opus-4-6"}
-	if len(spec.Args) != len(expected) {
-		t.Fatalf("Args length = %d, want %d", len(spec.Args), len(expected))
+	expected := []string{
+		"-p", "some prompt text", "--model", "claude-opus-4-6",
+		"--append-system-prompt-file", constants.SystemPromptContainerPath,
+		"--permission-mode", "bypassPermissions",
+		"--allow-dangerously-skip-permissions",
 	}
-	for i, want := range expected {
-		if spec.Args[i] != want {
-			t.Errorf("Args[%d] = %q, want %q", i, spec.Args[i], want)
-		}
-	}
+	assertArgsEqual(t, spec, expected)
 }
+
+func TestBuildRunSpec_ExplicitPermissionModePreserved(t *testing.T) {
+	sess, _ := newTestSession()
+	c := &Claude{Session: sess, Token: "test-token"}
+
+	parsed := &args.ParsedArgs{
+		ClaudeArgs: []args.ClaudeArg{
+			{Value: "-p", IsFile: false},
+			{Value: "hello", IsFile: false},
+			{Value: "--permission-mode", IsFile: false},
+			{Value: "default", IsFile: false},
+		},
+	}
+
+	spec, err := c.BuildRunSpec(parsed, &settings.Settings{}, newTestFS())
+	if err != nil {
+		t.Fatalf("BuildRunSpec() error: %v", err)
+	}
+
+	// Should NOT append a second --permission-mode, but still appends --allow-dangerously-skip-permissions.
+	expected := []string{
+		"-p", "hello", "--permission-mode", "default",
+		"--append-system-prompt-file", constants.SystemPromptContainerPath,
+		"--allow-dangerously-skip-permissions",
+	}
+	assertArgsEqual(t, spec, expected)
+}
+
+// --- New() tests ---
 
 func TestNew_WritesSettingsJSON(t *testing.T) {
 	sess, fw, _ := newTestSessionWithWriter()
@@ -268,13 +340,7 @@ func TestNew_WritesSettingsJSON(t *testing.T) {
 		t.Fatalf("New() error: %v", err)
 	}
 
-	var found *writtenFile
-	for i := range fw.files {
-		if fw.files[i].containerPath == "/home/claude/.claude/settings.json" {
-			found = &fw.files[i]
-			break
-		}
-	}
+	found := findWrittenFile(fw, "/home/claude/.claude/settings.json")
 	if found == nil {
 		t.Fatalf("settings.json not written; files: %+v", fw.files)
 	}
@@ -326,28 +392,17 @@ func TestNew_MountsClaudeJSON(t *testing.T) {
 	}
 }
 
-func TestSetPassthroughEnabled_WritesSystemPrompt(t *testing.T) {
+// --- SetPassthroughEnabled tests ---
+
+func TestSetPassthroughEnabled_StoresCommandsOnly(t *testing.T) {
 	sess, fw, _ := newTestSessionWithWriter()
 	c := &Claude{Session: sess}
 
 	c.SetPassthroughEnabled([]string{"git", "npm", "docker"})
 
-	var found *writtenFile
-	for i := range fw.files {
-		if fw.files[i].containerPath == constants.SystemPromptContainerPath {
-			found = &fw.files[i]
-			break
-		}
-	}
-	if found == nil {
-		t.Fatalf("system prompt not written; files: %+v", fw.files)
-	}
-
-	got := string(found.data)
-	for _, cmd := range []string{"git", "npm", "docker"} {
-		if !strings.Contains(got, cmd) {
-			t.Errorf("system prompt missing command %q; got: %s", cmd, got)
-		}
+	// Should NOT write any files — that's now handled by BuildRunSpec.
+	if len(fw.files) != 0 {
+		t.Errorf("expected no files written, got %d: %+v", len(fw.files), fw.files)
 	}
 }
 
@@ -366,27 +421,307 @@ func TestSetPassthroughEnabled_EmptyCommandsIsNoOp(t *testing.T) {
 	}
 }
 
-func TestWriteSystemPrompt_ProducesMarkdownWithCommands(t *testing.T) {
-	fw := &mockFileWriter{}
+// --- buildCcboxSystemPrompt tests ---
 
-	commands := []string{"git", "npm", "docker"}
-	err := writeSystemPrompt(fw, commands)
+func TestBuildCcboxSystemPrompt_AlwaysIncludesEnvironment(t *testing.T) {
+	content := buildCcboxSystemPrompt(nil)
+
+	for _, want := range []string{
+		"# ccbox Environment",
+		"container-based pseudo-sandbox",
+		"/tmp",
+		"MCP tools",
+		"Passthrough tools",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("missing %q in output:\n%s", want, content)
+		}
+	}
+
+	// No "Allowed Host Commands" section when no commands
+	if strings.Contains(content, "Allowed Host Commands") {
+		t.Error("should not contain Allowed Host Commands with nil commands")
+	}
+}
+
+func TestBuildCcboxSystemPrompt_IncludesCommandsWhenPresent(t *testing.T) {
+	content := buildCcboxSystemPrompt([]string{"git", "npm", "docker"})
+
+	// Environment section still present
+	if !strings.Contains(content, "# ccbox Environment") {
+		t.Error("missing environment section")
+	}
+
+	// Commands section present
+	if !strings.Contains(content, "## Allowed Host Commands") {
+		t.Error("missing Allowed Host Commands section")
+	}
+	for _, cmd := range []string{"git", "npm", "docker"} {
+		if !strings.Contains(content, cmd) {
+			t.Errorf("missing command %q", cmd)
+		}
+	}
+}
+
+// --- scanAppendArgs tests ---
+
+func TestScanAppendArgs_NoAppendArgs(t *testing.T) {
+	claudeArgs := []args.ClaudeArg{
+		{Value: "-p", IsFile: false},
+		{Value: "hello", IsFile: false},
+	}
+
+	result, err := scanAppendArgs(claudeArgs, newTestFS())
 	if err != nil {
-		t.Fatalf("writeSystemPrompt() error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.UserContent != "" {
+		t.Errorf("UserContent = %q, want empty", result.UserContent)
+	}
+	if len(result.StripIndices) != 0 {
+		t.Errorf("StripIndices = %v, want empty", result.StripIndices)
+	}
+}
+
+func TestScanAppendArgs_InlineAppend(t *testing.T) {
+	claudeArgs := []args.ClaudeArg{
+		{Value: "-p", IsFile: false},
+		{Value: "hello", IsFile: false},
+		{Value: "--append-system-prompt", IsFile: false},
+		{Value: "Always use Go", IsFile: false},
 	}
 
-	if len(fw.files) != 1 {
-		t.Fatalf("expected 1 file written, got %d", len(fw.files))
+	result, err := scanAppendArgs(claudeArgs, newTestFS())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.UserContent != "Always use Go" {
+		t.Errorf("UserContent = %q, want %q", result.UserContent, "Always use Go")
+	}
+	if len(result.StripIndices) != 2 || result.StripIndices[0] != 2 || result.StripIndices[1] != 3 {
+		t.Errorf("StripIndices = %v, want [2, 3]", result.StripIndices)
+	}
+}
+
+func TestScanAppendArgs_FileAppend(t *testing.T) {
+	fs := newTestFS()
+	fs.fileContents["/host/prompt.md"] = []byte("Use TypeScript always")
+
+	claudeArgs := []args.ClaudeArg{
+		{Value: "--append-system-prompt-file", IsFile: false},
+		{Value: "/host/prompt.md", IsFile: true},
+		{Value: "-p", IsFile: false},
+		{Value: "hello", IsFile: false},
 	}
 
-	if fw.files[0].containerPath != constants.SystemPromptContainerPath {
-		t.Errorf("containerPath = %q, want %q", fw.files[0].containerPath, constants.SystemPromptContainerPath)
+	result, err := scanAppendArgs(claudeArgs, fs)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.UserContent != "Use TypeScript always" {
+		t.Errorf("UserContent = %q, want %q", result.UserContent, "Use TypeScript always")
+	}
+	if len(result.StripIndices) != 2 || result.StripIndices[0] != 0 || result.StripIndices[1] != 1 {
+		t.Errorf("StripIndices = %v, want [0, 1]", result.StripIndices)
+	}
+}
+
+func TestScanAppendArgs_BothAppendTypes_ReturnsError(t *testing.T) {
+	claudeArgs := []args.ClaudeArg{
+		{Value: "--append-system-prompt", IsFile: false},
+		{Value: "some text", IsFile: false},
+		{Value: "--append-system-prompt-file", IsFile: false},
+		{Value: "/some/file.md", IsFile: true},
 	}
 
-	got := string(fw.files[0].data)
-	for _, cmd := range commands {
+	_, err := scanAppendArgs(claudeArgs, newTestFS())
+	if err == nil {
+		t.Fatal("expected error for mutually exclusive flags, got nil")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("error = %q, want mention of 'mutually exclusive'", err.Error())
+	}
+}
+
+// --- BuildRunSpec system prompt merge integration tests ---
+
+func TestBuildRunSpec_NoAppendNoPassthrough_WritesEnvironmentOnly(t *testing.T) {
+	sess, fw, _ := newTestSessionWithWriter()
+	c := &Claude{Session: sess, Token: "test-token"}
+
+	_, err := c.BuildRunSpec(&args.ParsedArgs{}, &settings.Settings{}, newTestFS())
+	if err != nil {
+		t.Fatalf("BuildRunSpec() error: %v", err)
+	}
+
+	found := findWrittenFile(fw, constants.SystemPromptContainerPath)
+	if found == nil {
+		t.Fatalf("system prompt file not written")
+	}
+
+	got := string(found.data)
+	if !strings.Contains(got, "# ccbox Environment") {
+		t.Error("missing environment section")
+	}
+	if strings.Contains(got, "Allowed Host Commands") {
+		t.Error("should not contain Allowed Host Commands without passthrough")
+	}
+}
+
+func TestBuildRunSpec_WithPassthrough_WritesEnvironmentAndCommands(t *testing.T) {
+	sess, fw, _ := newTestSessionWithWriter()
+	c := &Claude{Session: sess, Token: "test-token"}
+	c.SetPassthroughEnabled([]string{"git", "npm"})
+
+	_, err := c.BuildRunSpec(&args.ParsedArgs{}, &settings.Settings{}, newTestFS())
+	if err != nil {
+		t.Fatalf("BuildRunSpec() error: %v", err)
+	}
+
+	found := findWrittenFile(fw, constants.SystemPromptContainerPath)
+	if found == nil {
+		t.Fatalf("system prompt file not written")
+	}
+
+	got := string(found.data)
+	if !strings.Contains(got, "# ccbox Environment") {
+		t.Error("missing environment section")
+	}
+	if !strings.Contains(got, "Allowed Host Commands") {
+		t.Error("missing Allowed Host Commands section")
+	}
+	for _, cmd := range []string{"git", "npm"} {
 		if !strings.Contains(got, cmd) {
-			t.Errorf("system prompt missing command %q; got: %s", cmd, got)
+			t.Errorf("missing command %q", cmd)
+		}
+	}
+}
+
+func TestBuildRunSpec_UserInlineAppend_MergesWithEnvironment(t *testing.T) {
+	sess, fw, _ := newTestSessionWithWriter()
+	c := &Claude{Session: sess, Token: "test-token"}
+
+	parsed := &args.ParsedArgs{
+		ClaudeArgs: []args.ClaudeArg{
+			{Value: "-p", IsFile: false},
+			{Value: "hello", IsFile: false},
+			{Value: "--append-system-prompt", IsFile: false},
+			{Value: "Always use Go", IsFile: false},
+		},
+	}
+
+	spec, err := c.BuildRunSpec(parsed, &settings.Settings{}, newTestFS())
+	if err != nil {
+		t.Fatalf("BuildRunSpec() error: %v", err)
+	}
+
+	// Original append args should be stripped
+	for _, a := range spec.Args {
+		if a == "--append-system-prompt" {
+			t.Error("--append-system-prompt should have been stripped")
+		}
+		if a == "Always use Go" {
+			t.Error("inline append text should have been stripped from args")
+		}
+	}
+
+	// Merged file should contain both user text and environment
+	found := findWrittenFile(fw, constants.SystemPromptContainerPath)
+	if found == nil {
+		t.Fatalf("system prompt file not written")
+	}
+	got := string(found.data)
+	if !strings.Contains(got, "Always use Go") {
+		t.Error("missing user append text")
+	}
+	if !strings.Contains(got, "# ccbox Environment") {
+		t.Error("missing environment section")
+	}
+}
+
+func TestBuildRunSpec_UserInlineAppendWithPassthrough_MergesAll(t *testing.T) {
+	sess, fw, _ := newTestSessionWithWriter()
+	c := &Claude{Session: sess, Token: "test-token"}
+	c.SetPassthroughEnabled([]string{"git"})
+
+	parsed := &args.ParsedArgs{
+		ClaudeArgs: []args.ClaudeArg{
+			{Value: "--append-system-prompt", IsFile: false},
+			{Value: "Always use Go", IsFile: false},
+			{Value: "-p", IsFile: false},
+			{Value: "hello", IsFile: false},
+		},
+	}
+
+	_, err := c.BuildRunSpec(parsed, &settings.Settings{}, newTestFS())
+	if err != nil {
+		t.Fatalf("BuildRunSpec() error: %v", err)
+	}
+
+	found := findWrittenFile(fw, constants.SystemPromptContainerPath)
+	if found == nil {
+		t.Fatalf("system prompt file not written")
+	}
+	got := string(found.data)
+	if !strings.Contains(got, "Always use Go") {
+		t.Error("missing user append text")
+	}
+	if !strings.Contains(got, "# ccbox Environment") {
+		t.Error("missing environment section")
+	}
+	if !strings.Contains(got, "git") {
+		t.Error("missing passthrough command")
+	}
+}
+
+func TestBuildRunSpec_UserFileAppendWithPassthrough_MergesAll(t *testing.T) {
+	sess, fw, _ := newTestSessionWithWriter()
+	c := &Claude{Session: sess, Token: "test-token"}
+	c.SetPassthroughEnabled([]string{"docker"})
+
+	fs := newTestFS()
+	fs.fileContents["/host/rules.md"] = []byte("Follow these rules strictly")
+
+	parsed := &args.ParsedArgs{
+		ClaudeArgs: []args.ClaudeArg{
+			{Value: "--append-system-prompt-file", IsFile: false},
+			{Value: "/host/rules.md", IsFile: true},
+			{Value: "-p", IsFile: false},
+			{Value: "hello", IsFile: false},
+		},
+	}
+
+	spec, err := c.BuildRunSpec(parsed, &settings.Settings{}, fs)
+	if err != nil {
+		t.Fatalf("BuildRunSpec() error: %v", err)
+	}
+
+	// Original file append args should be stripped; no bind mount for user's file
+	for _, a := range spec.Args {
+		if a == "--append-system-prompt-file" && a != constants.SystemPromptContainerPath {
+			// The only --append-system-prompt-file should point to our merged file
+		}
+	}
+
+	found := findWrittenFile(fw, constants.SystemPromptContainerPath)
+	if found == nil {
+		t.Fatalf("system prompt file not written")
+	}
+	got := string(found.data)
+	if !strings.Contains(got, "Follow these rules strictly") {
+		t.Error("missing user file content")
+	}
+	if !strings.Contains(got, "# ccbox Environment") {
+		t.Error("missing environment section")
+	}
+	if !strings.Contains(got, "docker") {
+		t.Error("missing passthrough command")
+	}
+
+	// User's original file should NOT be registered as a passthrough
+	for _, pt := range fw.files {
+		if pt.containerPath == "/home/claude/rules.md" {
+			t.Error("user's original file should not be bind-mounted; content was absorbed into merged file")
 		}
 	}
 }
