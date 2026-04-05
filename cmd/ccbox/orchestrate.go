@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"github.com/ccdevkit/ccbox/internal/args"
 	"github.com/ccdevkit/ccbox/internal/bridge"
 	"github.com/ccdevkit/ccbox/internal/claude"
+	"github.com/ccdevkit/ccbox/internal/claude/hooks"
 	"github.com/ccdevkit/ccbox/internal/clipboard"
 	"github.com/ccdevkit/ccbox/internal/cmdpassthrough"
 	"github.com/ccdevkit/ccbox/internal/constants"
@@ -61,8 +63,8 @@ type BridgeServer interface {
 	Stop() error
 }
 
-// BridgeServerFactory creates a BridgeServer with the given exec handler.
-type BridgeServerFactory func(execHandler bridge.ExecHandler) BridgeServer
+// BridgeServerFactory creates a BridgeServer with the given exec and hook handlers.
+type BridgeServerFactory func(execHandler bridge.ExecHandler, hookHandler bridge.HookHandler) BridgeServer
 
 // orchestrationDeps holds all injectable dependencies for the main orchestration.
 type orchestrationDeps struct {
@@ -170,7 +172,13 @@ func runOrchestration(parsed *args.ParsedArgs, deps *orchestrationDeps) int {
 		return 1
 	}
 	c.Token = token
-	log.Debug("orchestrate", "claude initialized")
+
+	// Step 6b: Create hook registry and register built-in handlers.
+	registry := hooks.NewRegistry()
+	hooks.RegisterBypassPermissions(registry)
+	c.Registry = registry
+	c.SetLogger(log)
+	log.Debug("orchestrate", "claude initialized with hook registry, registered events: %v", registry.RegisteredEvents())
 
 	// Step 7: Command passthrough setup — create live-reloading permission checker.
 	// The checker automatically re-reads config files every ~1s so changes
@@ -191,8 +199,10 @@ func runOrchestration(parsed *args.ParsedArgs, deps *orchestrationDeps) int {
 	execHandler := cmdpassthrough.NewPermissionAwareHandler(checker)
 
 	var srv BridgeServer
+	hookHandler := registry.BridgeHandler()
+	log.Debug("orchestrate", "hook handler created from registry (non-nil: %v)", hookHandler != nil)
 	if deps.bridgeServerFactory != nil {
-		srv = deps.bridgeServerFactory(execHandler)
+		srv = deps.bridgeServerFactory(execHandler, hookHandler)
 	} else {
 		srv = deps.bridgeServer
 	}
@@ -232,6 +242,17 @@ func runOrchestration(parsed *args.ParsedArgs, deps *orchestrationDeps) int {
 		return 1
 	}
 	log.Debug("orchestrate", "run spec built: args=%v, env count=%d", runSpec.Args, len(runSpec.Env))
+
+	// Dump finalized settings hooks for debugging.
+	if c.SettingsManager != nil {
+		if hooksVal, ok := c.SettingsManager.Merged()["hooks"]; ok {
+			if hooksJSON, err := json.Marshal(hooksVal); err == nil {
+				log.Debug("orchestrate", "settings hooks config: %s", string(hooksJSON))
+			}
+		} else {
+			log.Debug("orchestrate", "WARNING: no hooks in finalized settings")
+		}
+	}
 
 	// Step 10: Build ContainerSpec.
 	imageName := docker.LocalImageName(deps.ccboxVersion, claudeVersion)

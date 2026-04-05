@@ -109,6 +109,66 @@ func assertArgsEqual(t *testing.T, spec *ClaudeRunSpec, expected []string) {
 	}
 }
 
+// --- BuildRunSpec settings manager integration tests ---
+
+func TestBuildRunSpec_IncludesSettingsArgsFromManager(t *testing.T) {
+	sess, fw, _ := newTestSessionWithWriter()
+
+	// Use New() to create Claude with a SettingsManager.
+	c, err := New(sess)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	c.Token = "test-token"
+
+	parsed := &args.ParsedArgs{
+		ClaudeArgs: []args.ClaudeArg{
+			{Value: "-p", IsFile: false},
+			{Value: "hello", IsFile: false},
+		},
+	}
+
+	spec, err := c.BuildRunSpec(parsed, &settings.Settings{}, newTestFS())
+	if err != nil {
+		t.Fatalf("BuildRunSpec() error: %v", err)
+	}
+
+	// Verify --settings and --setting-sources are present in args.
+	foundSettings := false
+	foundSettingSources := false
+	for i, a := range spec.Args {
+		if a == "--settings" {
+			foundSettings = true
+			if i+1 < len(spec.Args) && spec.Args[i+1] != constants.SettingsContainerPath {
+				t.Errorf("--settings value = %q, want %q", spec.Args[i+1], constants.SettingsContainerPath)
+			}
+		}
+		if a == "--setting-sources" {
+			foundSettingSources = true
+		}
+	}
+	if !foundSettings {
+		t.Errorf("--settings not found in args: %v", spec.Args)
+	}
+	if !foundSettingSources {
+		t.Errorf("--setting-sources not found in args: %v", spec.Args)
+	}
+
+	// Verify the settings file was written via the file writer.
+	found := findWrittenFile(fw, constants.SettingsContainerPath)
+	if found == nil {
+		t.Fatalf("settings file not written to %s; files: %+v", constants.SettingsContainerPath, fw.files)
+	}
+
+	// Verify the defaults are in the written settings.
+	got := string(found.data)
+	for _, want := range []string{`"allowedTools"`, `"enableAllProjectMcpServers"`, `"bypassPermissions"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("settings missing %s; got: %s", want, got)
+		}
+	}
+}
+
 // --- BuildRunSpec tests ---
 
 func TestBuildRunSpec_ArgsIncludesAllClaudeArgs(t *testing.T) {
@@ -332,24 +392,27 @@ func TestBuildRunSpec_ExplicitPermissionModePreserved(t *testing.T) {
 
 // --- New() tests ---
 
-func TestNew_WritesSettingsJSON(t *testing.T) {
-	sess, fw, _ := newTestSessionWithWriter()
+func TestNew_CreatesSettingsManagerWithDefaults(t *testing.T) {
+	sess, _, _ := newTestSessionWithWriter()
 
-	_, err := New(sess)
+	c, err := New(sess)
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
 
-	found := findWrittenFile(fw, "/home/claude/.claude/settings.json")
-	if found == nil {
-		t.Fatalf("settings.json not written; files: %+v", fw.files)
+	if c.SettingsManager == nil {
+		t.Fatal("SettingsManager should not be nil after New()")
 	}
 
-	got := string(found.data)
-	for _, want := range []string{`"allowedTools"`, `"enableAllProjectMcpServers"`, `"bypassPermissions"`} {
-		if !strings.Contains(got, want) {
-			t.Errorf("settings.json missing %s; got: %s", want, got)
-		}
+	merged := c.SettingsManager.Merged()
+	if _, ok := merged["allowedTools"]; !ok {
+		t.Error("merged settings missing allowedTools")
+	}
+	if v, ok := merged["enableAllProjectMcpServers"]; !ok || v != true {
+		t.Errorf("enableAllProjectMcpServers = %v, want true", v)
+	}
+	if v, ok := merged["bypassPermissions"]; !ok || v != true {
+		t.Errorf("bypassPermissions = %v, want true", v)
 	}
 }
 

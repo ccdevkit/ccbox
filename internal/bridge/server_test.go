@@ -17,7 +17,7 @@ func TestServerExecRequest(t *testing.T) {
 	}
 	logHandler := func(req LogRequest) {}
 
-	srv := NewServer(execHandler, logHandler)
+	srv := NewServer(execHandler, logHandler, nil)
 	port, err := srv.Start()
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -65,7 +65,7 @@ func TestServerLogRequest(t *testing.T) {
 		done <- req
 	}
 
-	srv := NewServer(execHandler, logHandler)
+	srv := NewServer(execHandler, logHandler, nil)
 	port, err := srv.Start()
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -98,7 +98,7 @@ func TestServerUnknownTypeSilentlyDropped(t *testing.T) {
 		t.Error("log handler should not be called for unknown type")
 	}
 
-	srv := NewServer(execHandler, logHandler)
+	srv := NewServer(execHandler, logHandler, nil)
 	port, err := srv.Start()
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -137,7 +137,7 @@ func TestServerMalformedJSONSilentlyDropped(t *testing.T) {
 		t.Error("log handler should not be called for malformed JSON")
 	}
 
-	srv := NewServer(execHandler, logHandler)
+	srv := NewServer(execHandler, logHandler, nil)
 	port, err := srv.Start()
 	if err != nil {
 		t.Fatalf("Start: %v", err)

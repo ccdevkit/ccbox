@@ -17,29 +17,39 @@ type ExecHandler func(req ExecRequest) (exitCode int, output []byte)
 // LogHandler processes a log request (fire-and-forget).
 type LogHandler func(req LogRequest)
 
+// HookHandler processes a hook request and returns a structured response.
+type HookHandler func(req HookRequest) HookResponse
+
 // NewLogHandler creates a LogHandler that forwards container log messages
-// to the given logger with a "container" prefix.
+// to the given logger. Uses the request's Prefix field if set, otherwise "container".
 func NewLogHandler(log *logger.Logger) LogHandler {
 	return func(req LogRequest) {
-		log.Debug("container", "%s", req.Message)
+		prefix := req.Prefix
+		if prefix == "" {
+			prefix = "container"
+		}
+		log.Debug(prefix, "%s", req.Message)
 	}
 }
 
 // Server is a TCP server that accepts JSON messages from a container
-// and dispatches them to exec or log handlers.
+// and dispatches them to exec, log, or hook handlers.
 type Server struct {
 	execHandler ExecHandler
 	logHandler  LogHandler
+	hookHandler HookHandler
 	listener    net.Listener
 	wg          sync.WaitGroup
 	done        chan struct{}
 }
 
 // NewServer creates a new Server with the given handlers.
-func NewServer(execHandler ExecHandler, logHandler LogHandler) *Server {
+// The hookHandler may be nil if hook dispatch is not needed.
+func NewServer(execHandler ExecHandler, logHandler LogHandler, hookHandler HookHandler) *Server {
 	return &Server{
 		execHandler: execHandler,
 		logHandler:  logHandler,
+		hookHandler: hookHandler,
 		done:        make(chan struct{}),
 	}
 }
@@ -122,6 +132,22 @@ func (s *Server) handleConn(conn net.Conn) {
 			return
 		}
 		s.logHandler(req)
+
+	case constants.HookRequestType:
+		var resp HookResponse
+		if s.hookHandler != nil {
+			var req HookRequest
+			if err := json.Unmarshal(line, &req); err != nil {
+				return
+			}
+			resp = s.hookHandler(req)
+		}
+		respJSON, err := json.Marshal(resp)
+		if err != nil {
+			return
+		}
+		conn.Write(respJSON)
+		conn.Write([]byte("\n"))
 
 	default:
 		// Unknown type: silently drop.

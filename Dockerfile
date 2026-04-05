@@ -9,10 +9,12 @@ RUN go mod download
 COPY cmd/ccptproxy ./cmd/ccptproxy
 COPY cmd/ccclipd ./cmd/ccclipd
 COPY cmd/ccdebug ./cmd/ccdebug
+COPY cmd/cchookproxy ./cmd/cchookproxy
 COPY internal/ ./internal/
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/ccptproxy ./cmd/ccptproxy && \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/ccclipd  ./cmd/ccclipd && \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/ccdebug  ./cmd/ccdebug
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/ccptproxy   ./cmd/ccptproxy && \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/ccclipd    ./cmd/ccclipd && \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/ccdebug    ./cmd/ccdebug && \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/cchookproxy ./cmd/cchookproxy
 
 # Stage 2: Runtime image
 # Multi-arch: linux/amd64 + linux/arm64 (FR-033)
@@ -47,9 +49,10 @@ RUN groupadd --gid 1001 claude && \
 # so the version matches the host CLI (or --use override).
 
 # Copy container binaries from builder
-COPY --from=builder /out/ccptproxy /opt/ccbox/bin/ccptproxy
-COPY --from=builder /out/ccclipd  /opt/ccbox/bin/ccclipd
-COPY --from=builder /out/ccdebug  /opt/ccbox/bin/ccdebug
+COPY --from=builder /out/ccptproxy    /opt/ccbox/bin/ccptproxy
+COPY --from=builder /out/ccclipd     /opt/ccbox/bin/ccclipd
+COPY --from=builder /out/ccdebug     /opt/ccbox/bin/ccdebug
+COPY --from=builder /out/cchookproxy /opt/ccbox/bin/cchookproxy
 
 # Ensure binaries are executable
 RUN chmod +x /opt/ccbox/bin/*

@@ -102,6 +102,32 @@ const (
 
 	// LogRequestType is the JSON type field value for log requests.
 	LogRequestType = "log"
+
+	// HookRequestType is the JSON type field value for hook requests.
+	HookRequestType = "hook"
+)
+
+// Hook proxy constants
+const (
+	// HookProxyBinaryName is the name of the container-side hook proxy binary.
+	HookProxyBinaryName = "cchookproxy"
+
+	// HookDialTimeoutSec is the TCP dial timeout for hook requests (in seconds).
+	HookDialTimeoutSec = 2
+
+	// HookResponseTimeoutSec is the response timeout for hook requests (in seconds).
+	HookResponseTimeoutSec = 10
+
+	// HookPluginContainerDir is the container path for the ccbox hooks plugin directory.
+	// Used with --plugin-dir to load hooks via the plugin system (hooks from --settings are ignored by Claude Code).
+	HookPluginContainerDir = "/opt/ccbox/ccbox-hooks-plugin"
+
+	// HookPluginHooksFile is the path to hooks.json inside the plugin directory.
+	HookPluginHooksFile = "/opt/ccbox/ccbox-hooks-plugin/hooks/hooks.json"
+
+	// ClaudeDebugFileContainerPath is the container path for Claude Code's --debug-file output.
+	// Used to tail Claude's debug logs back to the host.
+	ClaudeDebugFileContainerPath = "/opt/ccbox/claude-debug.log"
 )
 
 // Clipboard bridge constants

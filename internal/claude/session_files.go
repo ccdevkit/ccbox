@@ -9,24 +9,10 @@ import (
 
 	"github.com/ccdevkit/ccbox/internal/args"
 	"github.com/ccdevkit/ccbox/internal/constants"
-	"github.com/ccdevkit/ccbox/internal/session"
 )
 
-// settingsJSON is the Claude Code settings written into the container to bypass
-// permissions and enable MCP servers (FR-029).
-const settingsJSON = `{"allowedTools":[],"enableAllProjectMcpServers":true,"bypassPermissions":true}`
-
-// Container paths for session files.
-const (
-	settingsContainerPath   = constants.ContainerHomeDir + ".claude/settings.json"
-	claudeJSONContainerPath = constants.ContainerHomeDir + ".claude.json"
-)
-
-// writeSettings writes the Claude Code settings.json into the container via the
-// session file writer.
-func writeSettings(fw session.SessionFileWriter) error {
-	return fw.WriteFile(settingsContainerPath, []byte(settingsJSON), true)
-}
+// Container path for the .claude.json file inside the container.
+const claudeJSONContainerPath = constants.ContainerHomeDir + ".claude.json"
 
 // ensureClaudeJSON ensures ~/.ccbox/.claude.json exists on the host with the
 // required onboarding/permissions flags and oauthAccount from the host's
@@ -78,6 +64,41 @@ func ensureClaudeJSON() (string, error) {
 	}
 
 	return hostPath, nil
+}
+
+// ensureWorkspaceTrust updates ~/.ccbox/.claude.json to mark the given
+// directory as trusted so that plugin hooks execute without an interactive
+// trust prompt. This is the container equivalent of "claude-trust".
+func ensureWorkspaceTrust(cwd string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("get home dir: %w", err)
+	}
+
+	hostPath := filepath.Join(home, constants.SettingsDirName, ".claude.json")
+
+	config := map[string]any{}
+	if data, err := os.ReadFile(hostPath); err == nil {
+		json.Unmarshal(data, &config)
+	}
+
+	projects, _ := config["projects"].(map[string]any)
+	if projects == nil {
+		projects = map[string]any{}
+	}
+	proj, _ := projects[cwd].(map[string]any)
+	if proj == nil {
+		proj = map[string]any{}
+	}
+	proj["hasTrustDialogAccepted"] = true
+	projects[cwd] = proj
+	config["projects"] = projects
+
+	content, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("marshal .claude.json: %w", err)
+	}
+	return os.WriteFile(hostPath, content, 0600)
 }
 
 // buildCcboxSystemPrompt returns the ccbox system prompt content describing

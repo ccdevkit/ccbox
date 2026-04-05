@@ -121,7 +121,7 @@ func TestOrchestration_NoPermissionsNoPassthrough_BackwardCompat(t *testing.T) {
 	// checker is nil → NewPermissionAwareHandler(nil) returns HandleExec.
 	mock := &mockBridgeServerWithHandler{port: 12345}
 	deps := defaultDeps()
-	deps.bridgeServerFactory = func(execHandler bridge.ExecHandler) BridgeServer {
+	deps.bridgeServerFactory = func(execHandler bridge.ExecHandler, hookHandler bridge.HookHandler) BridgeServer {
 		mock.execHandler = execHandler
 		return mock
 	}
@@ -142,7 +142,7 @@ func TestOrchestration_CLIPassthrough_FactoryReceivesHandler(t *testing.T) {
 	// permission-aware exec handler (not nil).
 	mock := &mockBridgeServerWithHandler{port: 12345}
 	deps := defaultDeps()
-	deps.bridgeServerFactory = func(execHandler bridge.ExecHandler) BridgeServer {
+	deps.bridgeServerFactory = func(execHandler bridge.ExecHandler, hookHandler bridge.HookHandler) BridgeServer {
 		mock.execHandler = execHandler
 		return mock
 	}

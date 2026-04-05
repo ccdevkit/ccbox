@@ -110,8 +110,8 @@ func runDefault(parsed *args.ParsedArgs) {
 		versionDetect: &realVersionDetector{runner: execVersionRunner{}},
 		imageEnsurer:  &realImageEnsurer{mgr: docker.NewCLIImageManager()},
 		containerRunner: realContainerRunner{},
-		bridgeServerFactory: func(execHandler bridge.ExecHandler) BridgeServer {
-			return bridge.NewServer(execHandler, logHandler)
+		bridgeServerFactory: func(execHandler bridge.ExecHandler, hookHandler bridge.HookHandler) BridgeServer {
+			return bridge.NewServer(execHandler, logHandler, hookHandler)
 		},
 		ccboxVersion: version,
 		log:          log,

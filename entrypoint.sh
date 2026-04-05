@@ -32,6 +32,20 @@ if [ -n "$CCBOX_CLIP_PORT" ]; then
 fi
 
 debug_log "entrypoint: which claude=$(which claude 2>&1)"
+
+# If --debug-file is in the args, tail it through ccdebug so debug logs
+# reach the host. Touch the file first so tail -f doesn't fail.
+CLAUDE_DEBUG_FILE="/opt/ccbox/claude-debug.log"
+for arg in "$@"; do
+    if [ "$arg" = "--debug-file" ]; then
+        touch "$CLAUDE_DEBUG_FILE"
+        chown claude:claude "$CLAUDE_DEBUG_FILE"
+        tail -f "$CLAUDE_DEBUG_FILE" 2>/dev/null | ccdebug --prefix claude &
+        debug_log "entrypoint: tailing $CLAUDE_DEBUG_FILE through ccdebug"
+        break
+    fi
+done
+
 debug_log "entrypoint: exec gosu claude claude $*"
 
 # Drop from root to unprivileged claude user (UID 1001) per FR-020 and exec Claude Code

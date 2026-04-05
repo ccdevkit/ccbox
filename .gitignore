@@ -10,6 +10,7 @@ vendor/
 bin/
 ccbox
 ccptproxy
+cchookproxy
 ccclipd
 ccdebug
 

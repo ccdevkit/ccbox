@@ -1,10 +1,12 @@
 # ccbox Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-04-04
+Auto-generated from all feature plans. Last updated: 2026-04-05
 
 ## Active Technologies
 - Go 1.24 (toolchain go1.24.5) + `ccdevkit/common` (settings package for hierarchical file discovery), stdlib (`regexp`, `strings`, `fmt`) (002-passthrough-permissions)
 - Filesystem — `.ccbox/permissions.{json,yml,yaml}` discovered hierarchically (002-passthrough-permissions)
+- Go 1.24 (toolchain go1.24.5) + stdlib (`encoding/json`, `net`, `os`, `regexp`, `strings`, `fmt`, `path/filepath`), `ccdevkit/common` (settings discovery) (003-hook-integration)
+- Filesystem — session temp files, Claude Code settings JSON files (003-hook-integration)
 
 - Go 1.24 (toolchain go1.24.5) + `creack/pty` (Unix PTY), `aymanbagabas/go-pty` (Windows PTY), `google/uuid`, `ccdevkit/common` (settings library), `golang.design/x/clipboard`, `golang.org/x/term`, `golang.org/x/image` (WebP/BMP/TIFF decoding) (001-ccbox-rewrite)
 
@@ -41,9 +43,10 @@ internal/
 Go 1.24 (toolchain go1.24.5): Follow standard conventions
 
 ## Recent Changes
+- 003-hook-integration: Added Go 1.24 (toolchain go1.24.5) + stdlib (`encoding/json`, `net`, `os`, `regexp`, `strings`, `fmt`, `path/filepath`), `ccdevkit/common` (settings discovery)
+- 003-hook-integration: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 - 002-passthrough-permissions: Added Go 1.24 (toolchain go1.24.5) + `ccdevkit/common` (settings package for hierarchical file discovery), stdlib (`regexp`, `strings`, `fmt`)
 
-- 001-ccbox-rewrite: Added Go 1.24 (toolchain go1.24.5) + `creack/pty` (Unix PTY), `aymanbagabas/go-pty` (Windows PTY), `google/uuid`, `ccdevkit/common` (settings library), `golang.design/x/clipboard`, `golang.org/x/term`
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
